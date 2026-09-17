@@ -1,21 +1,21 @@
 api-gateway:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 auth-service:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 reserva-service:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 notificacion-service:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 cronjob-registro:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 cronjob-resumen:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
 pago-service:
   image:
-    tag: "pending"
+    tag: "p8-v1.0.0"
