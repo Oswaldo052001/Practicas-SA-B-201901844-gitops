@@ -1,0 +1,21 @@
+api-gateway:
+  image:
+    tag: "pending"
+auth-service:
+  image:
+    tag: "pending"
+reserva-service:
+  image:
+    tag: "pending"
+notificacion-service:
+  image:
+    tag: "pending"
+cronjob-registro:
+  image:
+    tag: "pending"
+cronjob-resumen:
+  image:
+    tag: "pending"
+pago-service:
+  image:
+    tag: "pending"
