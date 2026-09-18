@@ -22,7 +22,11 @@ spec:
                 restartPolicy: Never
                 containers:
                   - name: k6
-                    image: grafana/k6:latest
+                    # Tag fija (NO latest): la politica Kyverno
+                    # disallow-latest-tag esta en Enforce y bloquearia este
+                    # mismo Job si usara ":latest" - nos toca la misma regla
+                    # que le exigimos al resto de sa-platform.
+                    image: grafana/k6:2.2.0
                     command: ["k6", "run", "/scripts/loadtest.js"]
                     env:
                       - name: TARGET_URL
