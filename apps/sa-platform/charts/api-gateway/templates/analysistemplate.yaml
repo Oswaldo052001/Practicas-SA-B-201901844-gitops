@@ -1,0 +1,36 @@
+# Practica 8, Fase 6 - AnalysisTemplate: valida el canary con una prueba de
+# carga k6 real (Job de Kubernetes) contra api-gateway-canary (Service que
+# solo enruta a los pods de la version candidata) antes de que Argo
+# Rollouts autorice el siguiente paso de promocion. Si k6 incumple los
+# umbrales el Job termina con codigo distinto de 0, el AnalysisRun queda
+# "Failed" y el Rollout revierte automaticamente el trafico al stable
+# (abort), sin intervencion humana - ver 2.4/2.5 del enunciado.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: api-gateway-canary-check
+  namespace: {{ .Values.global.namespace | default "sa-p5" }}
+spec:
+  metrics:
+    - name: k6-canary-loadtest
+      provider:
+        job:
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: k6
+                    image: grafana/k6:latest
+                    command: ["k6", "run", "/scripts/loadtest.js"]
+                    env:
+                      - name: TARGET_URL
+                        value: "http://api-gateway-canary.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/health"
+                    volumeMounts:
+                      - name: k6-script
+                        mountPath: /scripts
+                volumes:
+                  - name: k6-script
+                    configMap:
+                      name: api-gateway-k6-script

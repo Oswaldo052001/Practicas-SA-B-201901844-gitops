@@ -1,0 +1,22 @@
+# Practica 8, Fase 6 - Service dedicado que apunta EXCLUSIVAMENTE a los pods
+# del canary (no al stable). Argo Rollouts gestiona el selector en tiempo
+# real: en cuanto este Service se declara como "canaryService" en el
+# Rollout, el controlador le inyecta el label interno
+# "rollouts-pod-template-hash" del ReplicaSet canario vigente. No requiere
+# service mesh ni Ingress con split de trafico.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-canary
+  namespace: {{ .Values.global.namespace | default "sa-p5" }}
+  labels:
+    {{- include "api-gateway.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port | default 3000 }}
+      targetPort: 3000

@@ -94,14 +94,32 @@ spec:
           emptyDir: {}
   strategy:
     canary:
+      # canaryService/stableService: Argo Rollouts gestiona el selector de
+      # estos dos Services automaticamente (ver service-canary.yaml /
+      # service-stable.yaml) para que el AnalysisTemplate pueda probar
+      # exclusivamente los pods nuevos, sin necesidad de service mesh.
+      canaryService: api-gateway-canary
+      stableService: api-gateway-stable
       # Entre pasos, Argo Rollouts espera a que los pods del canary esten
-      # Ready (gracias a los probes de arriba) antes de avanzar al siguiente.
+      # Ready (gracias a los probes de arriba) Y a que el AnalysisRun de
+      # ese paso termine en Successful antes de avanzar al siguiente. Si el
+      # AnalysisRun termina Failed/Error, el rollout se revierte solo
+      # (abort) y el trafico vuelve 100% al stable sin intervencion humana.
       steps:
         - setWeight: 25
+        - analysis:
+            templates:
+              - templateName: api-gateway-canary-check
         - pause: { duration: 30s }
         - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: api-gateway-canary-check
         - pause: { duration: 30s }
         - setWeight: 75
+        - analysis:
+            templates:
+              - templateName: api-gateway-canary-check
         # Pausa SIN duracion = indefinida: el rollout se queda esperando
         # aqui hasta que alguien lo promueva a mano (demuestra el punto de
         # control humano antes del 100%):
