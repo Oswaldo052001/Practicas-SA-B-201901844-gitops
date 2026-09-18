@@ -46,7 +46,7 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "sa-platform.postgresqlSecretName" . }}
-                      key: password
+                      key: db-password
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp

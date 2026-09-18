@@ -48,7 +48,7 @@ spec:
                   valueFrom:
                     secretKeyRef:
                       name: {{ include "sa-platform.postgresqlSecretName" . }}
-                      key: password
+                      key: db-password
                 - name: NATS_PASSWORD
                   valueFrom:
                     secretKeyRef:
