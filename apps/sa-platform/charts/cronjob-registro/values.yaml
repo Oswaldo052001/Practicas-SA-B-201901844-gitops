@@ -1,3 +1,13 @@
+# "global" con un valor por defecto propio: hace que "helm lint
+# --with-subcharts" (que también lintea cada subchart de forma aislada,
+# sin los values del chart padre) no truene con nil pointer al resolver
+# .Values.global.namespace. Cuando este subchart se instala normalmente
+# desde el chart padre, el "global" real (sa-p8) siempre sobreescribe
+# este valor por defecto.
+global:
+  namespace: sa-p5
+  environment: base
+
 image:
   repository: sa-p5/cronjob-registro
   tag: "1.0.0"
