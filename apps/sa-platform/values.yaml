@@ -37,9 +37,11 @@ postgresql:
       repository: bitnamilegacy/os-shell
   auth:
     username: sa_admin
-    password: "changeme"
     database: sa_platform_db
-    postgresPassword: "changeme-root"
+    # password / postgresPassword: NO se definen aqui. Vienen del Secret
+    # ya existente en el cluster (Sealed Secret, ver values-secrets.yaml
+    # -> postgresql.auth.existingSecret). Sin ese Secret, el chart falla
+    # al renderizar en vez de caer a una contrasena por defecto insegura.
   primary:
     persistence:
       enabled: true
@@ -84,7 +86,8 @@ nats:
     pullPolicy: IfNotPresent
   auth:
     username: sa_admin
-    # password: se define en values-secrets.yaml (no se versiona en el repo)
+    # password: ya no se define aqui; ver nats.auth.existingSecret en
+    # values-secrets.yaml (Secret real gestionado con Sealed Secrets).
   persistence:
     size: 1Gi
   resources:
