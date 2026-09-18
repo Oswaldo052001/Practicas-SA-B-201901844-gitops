@@ -1,21 +1,21 @@
 api-gateway:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 auth-service:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 reserva-service:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 notificacion-service:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 cronjob-registro:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 cronjob-resumen:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
 pago-service:
   image:
-    tag: "p8-v1.0.5"
+    tag: "p8-v1.0.6"
