@@ -26,7 +26,7 @@ spec:
                     command: ["k6", "run", "/scripts/loadtest.js"]
                     env:
                       - name: TARGET_URL
-                        value: "http://api-gateway-canary.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/health"
+                        value: "http://api-gateway-canary.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/ready-check"
                     volumeMounts:
                       - name: k6-script
                         mountPath: /scripts

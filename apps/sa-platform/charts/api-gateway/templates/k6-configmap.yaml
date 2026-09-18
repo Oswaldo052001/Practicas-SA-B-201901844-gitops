@@ -27,7 +27,7 @@ data:
       },
     };
 
-    const TARGET = __ENV.TARGET_URL || 'http://api-gateway.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/health';
+    const TARGET = __ENV.TARGET_URL || 'http://api-gateway-canary.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/ready-check';
 
     export default function () {
       const res = http.get(TARGET);
