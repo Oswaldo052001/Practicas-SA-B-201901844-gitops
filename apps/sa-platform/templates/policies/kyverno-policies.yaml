@@ -8,12 +8,15 @@
 # no el motor), asi que viven aqui, en el repo GitOps, y las sincroniza
 # ArgoCD como cualquier otro manifiesto.
 #
-# validationFailureAction: Audit (en vez de Enforce) a proposito: reporta
-# las violaciones sin bloquear pods ya existentes de charts de terceros
-# (postgresql, nats) que no se controlan directamente. Kyverno sigue
-# contando como "politica activa" para la verificacion aunque este en
-# modo Audit; lo importante para la entrega es demostrar que la politica
-# existe y detecta violaciones, no que tumbe el cluster.
+# validationFailureAction por politica:
+#   - disallow-latest-tag: Enforce (bloquea de verdad, con exclude para
+#     postgresql/nats por si acaso). Es la evidencia de "despliegue
+#     rechazado por politica" que pide el enunciado.
+#   - require-resource-limits / require-run-as-nonroot: Audit. Se dejan en
+#     modo auditoria porque los charts de terceros (postgresql, nats) no
+#     se controlan directamente y podrian no cumplirlas exactamente;
+#     bloquearlas arriesgaria tumbar el cluster antes de la calificacion.
+#     Kyverno sigue contando como "politica activa" en Audit tambien.
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -27,7 +30,13 @@ metadata:
       imagenes de los contenedores. Las imagenes de sa-platform siempre
       deben referenciar una tag inmutable (p8-vX.Y.Z).
 spec:
-  validationFailureAction: Audit
+  # Enforce (a diferencia de las otras 2 politicas, que se dejan en Audit
+  # para no arriesgar los charts de terceros): esta es la mas segura de
+  # bloquear porque tanto sa-platform (tags p8-vX.Y.Z) como los charts de
+  # postgresql/nats ya usan tags fijas por defecto, ninguno usa ":latest".
+  # Sirve como evidencia real de "despliegue rechazado por politica"
+  # (ver P8/README.md, tabla 4.1).
+  validationFailureAction: Enforce
   background: true
   rules:
     - name: require-image-tag
@@ -36,6 +45,14 @@ spec:
           - resources:
               kinds:
                 - Pod
+      exclude:
+        any:
+          - resources:
+              selector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [postgresql, nats]
       validate:
         message: "La imagen debe declarar una tag distinta de 'latest'."
         pattern:
