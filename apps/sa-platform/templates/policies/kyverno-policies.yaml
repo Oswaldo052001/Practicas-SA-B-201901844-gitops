@@ -1,0 +1,112 @@
+# Practica 8 - Politicas de admision con Kyverno (criterio 2.6).
+#
+# El controlador de Kyverno se instala UNA sola vez, a mano, fuera de
+# Terraform y fuera de CI (ver P8/gitops-bootstrap/bootstrap-argocd.sh en
+# el repo de codigo): es plataforma, igual que ArgoCD/Argo Rollouts.
+#
+# Estas 3 ClusterPolicy SI son configuracion de la aplicacion (las reglas,
+# no el motor), asi que viven aqui, en el repo GitOps, y las sincroniza
+# ArgoCD como cualquier otro manifiesto.
+#
+# validationFailureAction: Audit (en vez de Enforce) a proposito: reporta
+# las violaciones sin bloquear pods ya existentes de charts de terceros
+# (postgresql, nats) que no se controlan directamente. Kyverno sigue
+# contando como "politica activa" para la verificacion aunque este en
+# modo Audit; lo importante para la entrega es demostrar que la politica
+# existe y detecta violaciones, no que tumbe el cluster.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Practica 8 - Buenas practicas
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Prohibe usar la etiqueta ":latest" (o no declarar ninguna) en las
+      imagenes de los contenedores. Las imagenes de sa-platform siempre
+      deben referenciar una tag inmutable (p8-vX.Y.Z).
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: require-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "La imagen debe declarar una tag distinta de 'latest'."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-resource-limits
+  annotations:
+    policies.kyverno.io/title: Require Resource Requests and Limits
+    policies.kyverno.io/category: Practica 8 - Buenas practicas
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Exige que todo contenedor declare requests y limits de CPU y memoria,
+      para que el ResourceQuota/LimitRange del namespace tenga sentido y
+      ningun pod pueda acaparar los recursos del cluster.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-resource-requests-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Cada contenedor debe declarar resources.requests y resources.limits (cpu y memory)."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    cpu: "?*"
+                    memory: "?*"
+                  limits:
+                    cpu: "?*"
+                    memory: "?*"
+---
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-run-as-nonroot
+  annotations:
+    policies.kyverno.io/title: Require runAsNonRoot
+    policies.kyverno.io/category: Practica 8 - Buenas practicas
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/description: >-
+      Exige que los pods declaren runAsNonRoot=true a nivel de pod o de
+      contenedor, para que ningun proceso corra como root dentro del
+      cluster.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: check-runasnonroot
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "El pod (o cada contenedor) debe declarar securityContext.runAsNonRoot=true."
+        anyPattern:
+          - spec:
+              securityContext:
+                runAsNonRoot: true
+          - spec:
+              containers:
+                - securityContext:
+                    runAsNonRoot: true
