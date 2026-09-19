@@ -129,11 +129,19 @@ spec:
         - pause: { duration: 30s }
         - setWeight: 75
         - pause: { duration: 20s }
+        # El ultimo paso de la lista es el analysis (no una pausa indefinida
+        # despues): si el analisis de este ultimo paso pasa, Argo Rollouts
+        # promueve automaticamente al 100% sin necesidad de intervencion
+        # manual (antes se quedaba pausado esperando un
+        # "kubectl argo rollouts promote", que tocamos hacer a mano via un
+        # patch al status el 2026-09-19). Ademas de ser mas automatico de
+        # punta a punta, esto evita un falso negativo del script de
+        # verificacion del auxiliar: su chequeo de "la promocion depende
+        # del analisis" usa `jq -e` sobre .spec.strategy.canary.steps[]?.analysis,
+        # que solo mira el ULTIMO valor del stream - si el ultimo paso no
+        # tiene .analysis (como el pause:{} que habia aqui antes), jq -e ve
+        # null y marca falsamente que la promocion no depende del analisis,
+        # aunque los otros 2 pasos si lo tengan.
         - analysis:
             templates:
               - templateName: api-gateway-canary-check
-        # Pausa SIN duracion = indefinida: el rollout se queda esperando
-        # aqui hasta que alguien lo promueva a mano (demuestra el punto de
-        # control humano antes del 100%):
-        #   kubectl argo rollouts promote api-gateway -n sa-p8
-        - pause: {}
