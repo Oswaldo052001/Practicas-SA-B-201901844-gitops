@@ -107,16 +107,28 @@ spec:
       # (abort) y el trafico vuelve 100% al stable sin intervencion humana.
       steps:
         - setWeight: 25
+        # Pausa corta antes de cada analysis: le da tiempo al pod nuevo de
+        # pasar su readinessProbe (initialDelaySeconds:5 + primer chequeo)
+        # y aparecer como endpoint Ready del Service canary ANTES de que
+        # k6 empiece a mandarle trafico. Sin esto, el AnalysisRun puede
+        # arrancar en la ventana en la que el Service todavia no tiene
+        # ningun endpoint listo, dando falsos negativos (conexion
+        # rechazada, no un fallo real de la app) - encontrado en vivo el
+        # 2026-09-19 con la revision 4 (imagen ya arreglada, analysis
+        # fallo igual por esta condicion de carrera).
+        - pause: { duration: 20s }
         - analysis:
             templates:
               - templateName: api-gateway-canary-check
         - pause: { duration: 30s }
         - setWeight: 50
+        - pause: { duration: 20s }
         - analysis:
             templates:
               - templateName: api-gateway-canary-check
         - pause: { duration: 30s }
         - setWeight: 75
+        - pause: { duration: 20s }
         - analysis:
             templates:
               - templateName: api-gateway-canary-check
