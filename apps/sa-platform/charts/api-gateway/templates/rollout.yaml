@@ -32,6 +32,18 @@ spec:
         checksum/shared-config: {{ .Values.global.namespace | sha256sum }}
     spec:
       serviceAccountName: {{ include "api-gateway.serviceAccountName" . }}
+      # Practica 9, criterio 2.5 "Resiliencia ante perdida de nodo": sin
+      # esto, las 2 replicas de api-gateway (ver values-p9-resilience.yaml)
+      # podrian terminar las dos en el mismo nodo, y el PodDisruptionBudget
+      # (pdb.yaml) no serviria de nada durante un "kubectl drain" de ese
+      # nodo. "preferred" (no "required") a proposito: con 4 nodos alcanza
+      # de sobra, pero si algun dia el cluster corre con menos nodos de los
+      # que hay replicas, se prefiere seguir programando el pod (aunque
+      # comparta nodo) en vez de quedar Pending.
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

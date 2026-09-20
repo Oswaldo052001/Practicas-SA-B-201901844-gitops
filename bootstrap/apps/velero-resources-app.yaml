@@ -1,0 +1,32 @@
+# Segunda hija del app-of-apps: la CONFIGURACION de los respaldos
+# (Schedules de Velero, tabla 4.1 "Schedule de Velero"). Velero en si
+# (el controlador) lo instala Terraform como plataforma (ver
+# P9/terraform/velero.tf en el repo de codigo) porque tiene que existir
+# antes de que ArgoCD pueda sincronizar nada; pero QUE se respalda, CADA
+# CUANTO y CON QUE RETENCION es configuracion de la aplicacion, asi que
+# vive aqui, versionada como cualquier otro recurso.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: velero-resources
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Oswaldo052001/Practicas-SA-B-201901844-gitops.git
+    targetRevision: main
+    path: bootstrap/velero-resources
+    directory:
+      recurse: false
+      # Solo YAML: la carpeta tambien tiene un README/notas en Markdown
+      # que ArgoCD no debe intentar interpretar como manifiesto.
+      include: "*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: velero
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

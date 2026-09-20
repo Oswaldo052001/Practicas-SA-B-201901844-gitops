@@ -1,0 +1,25 @@
+# Respaldo programado del namespace de la aplicacion (criterio 2.3
+# "Respaldos programados, con retencion declarada, volumenes incluidos y
+# destino externo al cluster"). Corre a las 3:00 am (hora del cluster,
+# UTC), fuera del horario en que normalmente se estaria probando el
+# sistema en vivo.
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: schedule-datos
+  namespace: velero
+spec:
+  schedule: "0 3 * * *"
+  template:
+    includedNamespaces:
+      - sa-p8
+    # Snapshot de los PersistentVolume (el volumen de postgresql) incluido
+    # a proposito: es el requisito "Servicio con estado... con datos
+    # verificables que permitan comprobar que la restauracion recupero
+    # contenido real y no un volumen vacio".
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: false
+    ttl: 720h # 30 dias
+    storageLocation: default
+    volumeSnapshotLocations:
+      - default
