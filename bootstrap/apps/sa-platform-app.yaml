@@ -4,11 +4,16 @@
 # aplicaba a mano con "kubectl apply"; ahora es un recurso mas,
 # gestionado por GitOps igual que cualquier otra aplicacion.
 #
-# Unico cambio de contenido respecto a la version de P8: se agrega
-# values-p9-resilience.yaml al final de la lista de valores (gana sobre
-# los anteriores), con los hooks de respaldo de Velero para postgresql y
-# las replicas/anti-afinidad de api-gateway para la prueba de perdida de
-# nodo.
+# Cambios de contenido respecto a la version de P8:
+# 1. Se agrega values-p9-resilience.yaml al final de la lista de valores
+#    (gana sobre los anteriores), con los hooks de respaldo de Velero
+#    para postgresql y las replicas/anti-afinidad de api-gateway para la
+#    prueba de perdida de nodo.
+# 2. Se agrega "ignoreDifferences" para spec.replicas de Deployment (ver
+#    comentario mas abajo) - necesario para que la Application llegue a
+#    Synced de forma estable con los HPA activos; en P8 esto no se habia
+#    notado porque la Application no se re-sincronizaba con tanta
+#    frecuencia como en las pruebas repetidas de bootstrap de P9.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -31,6 +36,20 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: sa-p8
+  # auth-service, pago-service, reserva-service y notificacion-service
+  # tienen HorizontalPodAutoscaler (ver charts/*/templates/hpa.yaml) que
+  # cambia spec.replicas en vivo segun CPU. Sin este ignoreDifferences,
+  # selfHeal pelea contra el HPA: ArgoCD ve el Deployment como OutOfSync
+  # cada vez que el HPA escala, lo vuelve a fijar al valor estatico del
+  # chart, el HPA lo cambia de nuevo - un ciclo que nunca deja la
+  # Application en Synced de forma estable (el Health se mantiene Healthy
+  # todo el tiempo, pero el Sync Status oscila). api-gateway usa Rollout,
+  # no Deployment, y no lo afecta este ignoreDifferences.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
