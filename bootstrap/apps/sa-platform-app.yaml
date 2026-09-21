@@ -50,6 +50,18 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/replicas
+    # api-gateway no es un Deployment normal, es un Rollout de Argo
+    # Rollouts (ver charts/api-gateway/templates/rollout.yaml), y su HPA
+    # apunta el scaleTargetRef ahi (charts/api-gateway/templates/hpa.yaml:
+    # "kind: Rollout", no "kind: Deployment") - por eso el ignoreDifferences
+    # de arriba (group apps/Deployment) no lo cubria y seguia peleando con
+    # el HPA exactamente igual, solo que ahora unicamente en este recurso
+    # (confirmado: el ultimo Sync Result solo volvia a tocar el Rollout
+    # api-gateway, ningun Deployment).
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
   syncPolicy:
     automated:
       prune: true
