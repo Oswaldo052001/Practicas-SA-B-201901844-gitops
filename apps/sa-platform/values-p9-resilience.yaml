@@ -39,6 +39,18 @@ postgresql:
 
 api-gateway:
   replicaCount: 2
+  # values-dev.yaml (aplicado ANTES que este overlay, pero DESPUES de
+  # values.yaml) fija hpa.minReplicas=1 para todos los microservicios como
+  # ahorro de costo en este entorno de laboratorio - eso incluye a
+  # api-gateway, y como el HPA reconcilia continuamente hacia su propio
+  # minReplicas (sin carga real, no hay motivo para escalar por encima del
+  # minimo), termina deshaciendo el replicaCount=2 de arriba en cuanto pasa
+  # el primer ciclo de reconciliacion del HPA. Se fuerza aqui minReplicas=2
+  # solo para api-gateway (el unico punto de entrada publico, criterio
+  # 2.5) para que la prueba de perdida de nodo tenga de verdad 2 replicas
+  # con anti-afinidad para proteger.
+  hpa:
+    minReplicas: 2
   affinity:
     podAntiAffinity:
       preferredDuringSchedulingIgnoredDuringExecution:
