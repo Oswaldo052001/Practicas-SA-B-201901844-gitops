@@ -37,11 +37,17 @@ spec:
     #    5xx, y sin eso el cociente seria "sin datos" (se confundiria con un
     #    canary que no recibio trafico). El denominador no lleva "or": si el
     #    canary no recibio trafico, la consulta queda vacia y falla cerrado.
+    #    initialDelay 75s + consecutiveErrorLimit 8: Prometheus necesita
+    #    descubrir el pod nuevo, raspar 2 veces (15s) y llenar la ventana de
+    #    rate()[1m] antes de tener datos. Sin esa holgura, el "sin datos" de
+    #    los primeros segundos abortaba el rollout (visto en vivo, rev. 3).
+    #    Si tras ~3 min sigue sin datos, igual falla cerrado.
     - name: error-rate
-      interval: 20s
-      initialDelay: 40s
+      interval: 15s
+      initialDelay: 75s
       count: 3
       failureLimit: 0
+      consecutiveErrorLimit: 8
       successCondition: result[0] < 0.05
       failureCondition: result[0] >= 0.05
       provider:
@@ -58,10 +64,11 @@ spec:
     #    Umbral: 1 segundo (el SLO de latencia del proyecto es 99% < 2 s; el
     #    canary debe ser claramente mejor que ese limite antes de promoverse).
     - name: latency-p95
-      interval: 20s
-      initialDelay: 40s
+      interval: 15s
+      initialDelay: 75s
       count: 3
       failureLimit: 0
+      consecutiveErrorLimit: 8
       successCondition: result[0] < 1
       failureCondition: result[0] >= 1
       provider:
