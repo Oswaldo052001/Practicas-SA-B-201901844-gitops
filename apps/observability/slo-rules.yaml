@@ -1,0 +1,120 @@
+# Practica 10 - SLO y alertas como codigo (PrometheusRule).
+#
+# SLO (medidos en el api-gateway, que es la puerta de entrada de los usuarios;
+# solo rutas /api/*, sin probes de Kubernetes):
+#   SLO-1 Disponibilidad: 99 % de las peticiones terminan SIN error 5xx,
+#         ventana movil de 30 dias.  Presupuesto de error = 1 %.
+#   SLO-2 Latencia: 99 % de las peticiones responden en menos de 2 segundos
+#         (bucket le="2" del histograma), ventana movil de 30 dias.
+#
+# Alertas por "quema del presupuesto" (burn rate): burn = tasa de error
+# observada / presupuesto (0.01). Burn 10 = se gasta el presupuesto de 30 dias
+# 10 veces mas rapido de lo permitido. Cada alerta lleva runbook_url (que hacer).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sa-p8-slo
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observabilidad-p10
+spec:
+  groups:
+    - name: sa-p8.sli
+      interval: 30s
+      rules:
+        # Tasa de peticiones y de errores 5xx en el gateway por ventana.
+        - record: sa:http_requests:rate1m
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*"}[1m]))
+        - record: sa:http_requests:rate5m
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*"}[5m]))
+        - record: sa:http_errors:rate1m
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*",status_class="5xx"}[1m])) or vector(0)
+        - record: sa:http_errors:rate5m
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*",status_class="5xx"}[5m])) or vector(0)
+        - record: sa:http_errors:rate1h
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*",status_class="5xx"}[1h])) or vector(0)
+        - record: sa:http_requests:rate1h
+          expr: sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*"}[1h]))
+        # Razon de error (SLI de disponibilidad = 1 - razon).
+        - record: sa:http_error_ratio:rate1m
+          expr: sa:http_errors:rate1m / sa:http_requests:rate1m
+        - record: sa:http_error_ratio:rate5m
+          expr: sa:http_errors:rate5m / sa:http_requests:rate5m
+        - record: sa:http_error_ratio:rate1h
+          expr: sa:http_errors:rate1h / sa:http_requests:rate1h
+        # Latencia: p95 y fraccion de peticiones MAS LENTAS que 2 s (SLO-2).
+        - record: sa:http_latency_p95:rate5m
+          expr: histogram_quantile(0.95, sum by (le) (rate(app_http_request_duration_seconds_bucket{service="api-gateway",route=~"/api/.*"}[5m])))
+        - record: sa:http_slow_ratio:rate5m
+          expr: |
+            1 - (
+              sum(rate(app_http_request_duration_seconds_bucket{service="api-gateway",route=~"/api/.*",le="2"}[5m]))
+              /
+              sum(rate(app_http_request_duration_seconds_count{service="api-gateway",route=~"/api/.*"}[5m]))
+            )
+
+    - name: sa-p8.alertas
+      rules:
+        - alert: SLODisponibilidadQuemaRapida
+          # Burn >= 10 (error >= 10 %) en 5 min Y confirmado en el ultimo minuto.
+          expr: sa:http_error_ratio:rate5m > 0.10 and sa:http_error_ratio:rate1m > 0.10
+          for: 1m
+          labels:
+            severity: page
+            service: api-gateway
+            slo: disponibilidad
+          annotations:
+            summary: "api-gateway: {{ $value | humanizePercentage }} de errores 5xx (SLO 99 %, quema >= 10x)"
+            description: "El presupuesto de error de 30 dias se esta gastando al menos 10 veces mas rapido de lo permitido."
+            runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLODisponibilidadQuemaRapida.md
+
+        - alert: SLODisponibilidadQuemaLenta
+          # Burn >= 3 (error >= 3 %) sostenido una hora: degradacion silenciosa.
+          expr: sa:http_error_ratio:rate1h > 0.03 and sa:http_error_ratio:rate5m > 0.03
+          for: 5m
+          labels:
+            severity: ticket
+            service: api-gateway
+            slo: disponibilidad
+          annotations:
+            summary: "api-gateway: errores 5xx sostenidos ({{ $value | humanizePercentage }} en 1 h, quema >= 3x)"
+            description: "Degradacion lenta: no despierta a nadie, pero consume el presupuesto de error."
+            runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLODisponibilidadQuemaLenta.md
+
+        - alert: SLOLatenciaAlta
+          # Mas del 5 % de las peticiones tarda mas de 2 s (el SLO tolera 1 %).
+          expr: sa:http_slow_ratio:rate5m > 0.05
+          for: 2m
+          labels:
+            severity: page
+            service: api-gateway
+            slo: latencia
+          annotations:
+            summary: "api-gateway: {{ $value | humanizePercentage }} de peticiones tardan mas de 2 s (SLO: 1 %)"
+            description: "p95 actual y desglose por ruta en el tablero 'Operacion SA P10'."
+            runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLOLatenciaAlta.md
+
+        - alert: ServicioSinMetricas
+          # Un servicio instrumentado dejo de responder al scrape (pod caido,
+          # reiniciando, o sin red).
+          expr: count by (service) (up{namespace="sa-p8",service=~"api-gateway|auth-service|reserva-service"} == 0) > 0
+          for: 2m
+          labels:
+            severity: page
+          annotations:
+            summary: "{{ $labels.service }}: Prometheus no puede raspar sus metricas"
+            description: "El pod esta caido, reiniciando o la NetworkPolicy bloquea el puerto 9464."
+            runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/ServicioSinMetricas.md
+
+        - alert: GatewayNATSSinRespuesta
+          # El gateway no obtiene respuesta de un microservicio por NATS
+          # (timeout o error de conexion): causa tipica de 504 en el gateway.
+          expr: sum by (servicio) (rate(app_nats_request_duration_seconds_count{service="api-gateway",resultado="timeout_o_error"}[5m])) > 0.05
+          for: 2m
+          labels:
+            severity: page
+            service: api-gateway
+          annotations:
+            summary: "api-gateway: sin respuesta de {{ $labels.servicio }} via NATS ({{ $value | humanize }} req/s)"
+            description: "El microservicio no contesta en el subject svc.{{ $labels.servicio }}.http. Revisar pods y trazas del tablero."
+            runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/GatewayNATSSinRespuesta.md

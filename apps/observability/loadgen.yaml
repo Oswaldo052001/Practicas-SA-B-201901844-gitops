@@ -1,0 +1,110 @@
+# Practica 10 - Generador de carga permanente (k6). Mantiene ~4 peticiones/s
+# de usuarios sinteticos contra el api-gateway. Cumple dos funciones:
+#   1. Los paneles y los SLO siempre tienen datos que mostrar.
+#   2. El canary (Argo Rollouts) recibe trafico "real" mientras se analiza:
+#      sin trafico, el AnalysisTemplate no tendria que medir y fallaria.
+# Mezcla de operaciones por iteracion: 40 % listar reservas, 25 % login,
+# 20 % crear reserva, 15 % login con clave incorrecta (4xx esperado: no
+# cuenta contra el SLO, que solo mira 5xx).
+#
+# Para pausarlo (p. ej. para demostrar el estado "sin trafico"):
+#   kubectl -n observability scale deploy/loadgen --replicas=0
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgen-script
+  namespace: observability
+data:
+  script.js: |
+    import http from "k6/http";
+    import { check, sleep } from "k6";
+
+    const BASE = __ENV.BASE_URL || "http://api-gateway.sa-p8.svc.cluster.local:3000";
+    const CORREO = `loadgen-${Date.now()}@p10.local`;
+    const CLAVE = "Loadgen-p10-clave";
+    const JSON_H = { headers: { "Content-Type": "application/json" } };
+
+    export const options = {
+      scenarios: {
+        trafico: {
+          executor: "constant-arrival-rate",
+          rate: 4,
+          timeUnit: "1s",
+          duration: "720h",
+          preAllocatedVUs: 8,
+          maxVUs: 40,
+        },
+      },
+    };
+
+    export function setup() {
+      // Reintenta hasta que el gateway responda (arranque en frio del cluster).
+      let usuarioId = 1;
+      for (let i = 0; i < 30; i++) {
+        const r = http.post(`${BASE}/api/auth/registro`, JSON.stringify({ correo: CORREO, password: CLAVE, rol: "cliente" }), JSON_H);
+        if (r.status === 201) {
+          usuarioId = r.json("id");
+          break;
+        }
+        sleep(5);
+      }
+      return { usuarioId };
+    }
+
+    export default function (data) {
+      const dado = Math.random();
+      let r;
+      if (dado < 0.40) {
+        r = http.get(`${BASE}/api/reservas/usuario/${data.usuarioId}`);
+        check(r, { "listar 200": (x) => x.status === 200 });
+      } else if (dado < 0.65) {
+        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: CORREO, password: CLAVE }), JSON_H);
+        check(r, { "login 200": (x) => x.status === 200 });
+      } else if (dado < 0.85) {
+        r = http.post(
+          `${BASE}/api/reservas/reservas`,
+          JSON.stringify({ usuarioId: data.usuarioId, funcionId: 1 + Math.floor(Math.random() * 3), asientos: 1 + Math.floor(Math.random() * 3) }),
+          JSON_H
+        );
+        check(r, { "reserva 201": (x) => x.status === 201 });
+      } else {
+        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: CORREO, password: "clave-incorrecta" }), JSON_H);
+        check(r, { "login invalido 401": (x) => x.status === 401 });
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: loadgen
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: loadgen
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-nodepool: obs-pool
+      containers:
+        - name: k6
+          image: grafana/k6:0.55.0
+          args: ["run", "--quiet", "/scripts/script.js"]
+          env:
+            - name: BASE_URL
+              value: http://api-gateway.sa-p8.svc.cluster.local:3000
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 300m, memory: 192Mi }
+          volumeMounts:
+            - { name: script, mountPath: /scripts }
+      volumes:
+        - name: script
+          configMap:
+            name: loadgen-script

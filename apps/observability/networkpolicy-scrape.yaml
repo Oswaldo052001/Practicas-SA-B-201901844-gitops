@@ -1,0 +1,26 @@
+# Practica 10 - NetworkPolicy en sa-p8 (el namespace tiene default-deny desde
+# la P8/P9). Las NetworkPolicy son ADITIVAS: esta regla solo AGREGA permisos,
+# no quita ninguno de los existentes.
+#
+#  - 9464: Prometheus (namespace observability) puede raspar /metrics de los
+#    pods de la aplicacion.
+#  - 3000: el generador de carga (namespace observability) puede llamar al
+#    api-gateway para mantener trafico constante hacia estable y canary.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-observability-ingress
+  namespace: sa-p8
+  labels:
+    app.kubernetes.io/part-of: observabilidad-p10
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - { protocol: TCP, port: 9464 }
+        - { protocol: TCP, port: 3000 }

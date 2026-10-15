@@ -1,40 +1,75 @@
-# Practica 8, Fase 6 - AnalysisTemplate: valida el canary con una prueba de
-# carga k6 real (Job de Kubernetes) contra api-gateway-canary (Service que
-# solo enruta a los pods de la version candidata) antes de que Argo
-# Rollouts autorice el siguiente paso de promocion. Si k6 incumple los
-# umbrales el Job termina con codigo distinto de 0, el AnalysisRun queda
-# "Failed" y el Rollout revierte automaticamente el trafico al stable
-# (abort), sin intervencion humana - ver 2.4/2.5 del enunciado.
+# Practica 10 - AnalysisTemplate basado en METRICAS REALES (Prometheus).
+#
+# En la Practica 8 este archivo definia "api-gateway-canary-check": un Job de
+# k6 que le disparaba trafico sintetico al Service del canary. El analisis
+# dependia de una prueba que el propio estudiante escribio, no de como se
+# comporta el sistema bajo trafico de usuarios. Ahora el provider es
+# "prometheus": el AnalysisRun consulta la tasa de error y el percentil 95 de
+# latencia que Prometheus midio sobre los pods de la version candidata
+# (filtrados por el hash del ReplicaSet canary), y SOLO de ellos.
+#
+# El trafico de usuarios llega al canary porque Argo Rollouts ajusta la
+# proporcion de replicas (25% / 50% / 75%) detras del mismo Service. Un
+# generador de carga permanente (apps/observability/loadgen.yaml) mantiene
+# ese trafico mientras no haya usuarios reales.
+#
+# Si una consulta devuelve "sin datos" (el canary no recibio trafico) o supera
+# el umbral, la medicion NO cuenta como exito: el AnalysisRun termina Failed o
+# Error y el Rollout se revierte solo al stable, sin intervencion humana.
+#
+# Nota de Helm: las expresiones de Argo Rollouts "{{args.xxx}}" se escapan con
+# {{`...`}} para que Helm no intente evaluarlas al renderizar el chart.
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
-  name: api-gateway-canary-check
+  name: api-gateway-canary-metrics
   namespace: {{ .Values.global.namespace | default "sa-p5" }}
 spec:
+  args:
+    # Lo inyecta el Rollout (steps[].analysis.args): hash del ReplicaSet canary.
+    - name: canary-hash
+    - name: prometheus-address
+      value: http://kps-prometheus.observability.svc.cluster.local:9090
   metrics:
-    - name: k6-canary-loadtest
+    # 1) Tasa de error: fraccion de peticiones /api/* del canary que
+    #    terminaron en 5xx durante el ultimo minuto. Umbral: 5%.
+    #    "or vector(0)" en el numerador: un canary sano no tiene NINGUNA serie
+    #    5xx, y sin eso el cociente seria "sin datos" (se confundiria con un
+    #    canary que no recibio trafico). El denominador no lleva "or": si el
+    #    canary no recibio trafico, la consulta queda vacia y falla cerrado.
+    - name: error-rate
+      interval: 20s
+      initialDelay: 40s
+      count: 3
+      failureLimit: 0
+      successCondition: result[0] < 0.05
+      failureCondition: result[0] >= 0.05
       provider:
-        job:
-          spec:
-            backoffLimit: 0
-            template:
-              spec:
-                restartPolicy: Never
-                containers:
-                  - name: k6
-                    # Tag fija (NO latest): la politica Kyverno
-                    # disallow-latest-tag esta en Enforce y bloquearia este
-                    # mismo Job si usara ":latest" - nos toca la misma regla
-                    # que le exigimos al resto de sa-platform.
-                    image: grafana/k6:2.2.0
-                    command: ["k6", "run", "/scripts/loadtest.js"]
-                    env:
-                      - name: TARGET_URL
-                        value: "http://api-gateway-canary.{{ .Values.global.namespace | default "sa-p5" }}.svc.cluster.local:{{ .Values.service.port | default 3000 }}/ready-check"
-                    volumeMounts:
-                      - name: k6-script
-                        mountPath: /scripts
-                volumes:
-                  - name: k6-script
-                    configMap:
-                      name: api-gateway-k6-script
+        prometheus:
+          address: {{`"{{args.prometheus-address}}"`}}
+          query: |
+            (
+              sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*",status_class="5xx",rollouts_pod_template_hash="{{`{{args.canary-hash}}`}}"}[1m]))
+              or vector(0)
+            )
+            /
+            sum(rate(app_http_requests_total{service="api-gateway",route=~"/api/.*",rollouts_pod_template_hash="{{`{{args.canary-hash}}`}}"}[1m]))
+    # 2) Latencia p95 de las peticiones /api/* del canary (ultimo minuto).
+    #    Umbral: 1 segundo (el SLO de latencia del proyecto es 99% < 2 s; el
+    #    canary debe ser claramente mejor que ese limite antes de promoverse).
+    - name: latency-p95
+      interval: 20s
+      initialDelay: 40s
+      count: 3
+      failureLimit: 0
+      successCondition: result[0] < 1
+      failureCondition: result[0] >= 1
+      provider:
+        prometheus:
+          address: {{`"{{args.prometheus-address}}"`}}
+          query: |
+            histogram_quantile(0.95,
+              sum by (le) (
+                rate(app_http_request_duration_seconds_bucket{service="api-gateway",route=~"/api/.*",rollouts_pod_template_hash="{{`{{args.canary-hash}}`}}"}[1m])
+              )
+            )

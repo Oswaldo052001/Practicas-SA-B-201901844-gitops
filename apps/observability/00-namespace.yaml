@@ -1,0 +1,9 @@
+# Namespace del stack de observabilidad (Practica 10). Lo crean tambien los
+# Applications (CreateNamespace=true); se declara aqui para que quede
+# versionado y con etiquetas claras.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    app.kubernetes.io/part-of: observabilidad-p10

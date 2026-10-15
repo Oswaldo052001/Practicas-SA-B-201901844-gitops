@@ -1,0 +1,199 @@
+# Practica 10 - Hija del app-of-apps: Prometheus + Alertmanager + Grafana.
+# Instala el chart kube-prometheus-stack (Prometheus Operator, Prometheus,
+# Alertmanager, Grafana y kube-state-metrics) en el namespace "observability".
+# Es GitOps puro: los valores viven aqui, en el repo de manifiestos, y ArgoCD
+# los sincroniza; nada se instala a mano.
+#
+# Decisiones (todas por RUIDO y por RECURSOS, el cluster de laboratorio es chico):
+#   - defaultRules.create=false: el chart trae ~150 alertas genericas (CPU de
+#     un nodo, etcd, scheduler...) que NADIE atenderia. Las unicas alertas son
+#     las de apps/observability/slo-rules.yaml, por consumo de presupuesto.
+#   - Sin node-exporter ni componentes del control plane de GKE (no se pueden
+#     raspar en GKE): la saturacion sale del kubelet/cAdvisor y de las metricas
+#     de la propia aplicacion (event loop, pool de Postgres).
+#   - Sin PersistentVolumes (emptyDir): evita discos huerfanos al destruir el
+#     cluster, a cambio de perder el historico si el pod de Prometheus se
+#     reprograma. Aceptable en un laboratorio efimero.
+#   - Todo lo pesado corre en el node pool "obs-pool" (ver P10/scripts/
+#     00-agregar-nodepool.ps1): los 4 nodos e2-small de la P8/P9 no tienen
+#     memoria para este stack.
+#   - Grafana con clave fija de laboratorio (no hay ningun dato sensible; con
+#     clave aleatoria cada re-render de ArgoCD la cambiaria).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    # Primero la plataforma (instala los CRD PrometheusRule/PodMonitor) y
+    # despues los recursos que los usan (observability-resources, ola 1).
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 77.14.0
+    helm:
+      releaseName: kube-prometheus-stack
+      valuesObject:
+        # Nombres cortos y estables de los Services (los usa el AnalysisTemplate
+        # del canary: kps-prometheus.observability.svc:9090).
+        fullnameOverride: kps
+        crds:
+          enabled: true
+        defaultRules:
+          create: false
+        nodeExporter:
+          enabled: false
+        kubeEtcd:
+          enabled: false
+        kubeScheduler:
+          enabled: false
+        kubeControllerManager:
+          enabled: false
+        kubeProxy:
+          enabled: false
+        coreDns:
+          enabled: false
+        kubeDns:
+          enabled: false
+        kubeApiServer:
+          enabled: false
+        prometheusOperator:
+          # Sin webhook de admision: evita los Jobs de certificados (hooks) que
+          # ArgoCD sincroniza mal y no aportan nada en un laboratorio.
+          admissionWebhooks:
+            enabled: false
+          tls:
+            enabled: false
+          nodeSelector:
+            cloud.google.com/gke-nodepool: obs-pool
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 160Mi }
+        kube-state-metrics:
+          fullnameOverride: kps-kube-state-metrics
+          nodeSelector:
+            cloud.google.com/gke-nodepool: obs-pool
+          resources:
+            requests: { cpu: 10m, memory: 48Mi }
+            limits: { cpu: 100m, memory: 128Mi }
+        prometheus:
+          prometheusSpec:
+            # Que Prometheus tome TODOS los PodMonitor / PrometheusRule del
+            # cluster (si no, solo los que lleven la etiqueta release=<chart>).
+            ruleSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            serviceMonitorSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+            scrapeInterval: 15s
+            evaluationInterval: 30s
+            retention: 30d
+            retentionSize: 2GB
+            nodeSelector:
+              cloud.google.com/gke-nodepool: obs-pool
+            resources:
+              requests: { cpu: 150m, memory: 600Mi }
+              limits: { cpu: 1000m, memory: 1200Mi }
+        alertmanager:
+          alertmanagerSpec:
+            nodeSelector:
+              cloud.google.com/gke-nodepool: obs-pool
+            resources:
+              requests: { cpu: 10m, memory: 40Mi }
+              limits: { cpu: 100m, memory: 128Mi }
+          # Todas las alertas llegan al "alert-sink" del cluster (registra cada
+          # alerta como JSON en stdout -> Loki). En produccion aqui iria el
+          # canal de guardia (PagerDuty/Slack/correo); no se usa uno real para
+          # no guardar secretos en el repo.
+          config:
+            global:
+              resolve_timeout: 5m
+            route:
+              receiver: alert-sink
+              group_by: [alertname, slo]
+              group_wait: 10s
+              group_interval: 1m
+              repeat_interval: 4h
+              routes:
+                - receiver: alert-sink
+                  matchers:
+                    - severity = "page"
+                  repeat_interval: 1h
+            receivers:
+              - name: alert-sink
+                webhook_configs:
+                  - url: http://alert-sink.observability.svc.cluster.local:8080/alertmanager
+                    send_resolved: true
+        grafana:
+          fullnameOverride: kps-grafana
+          adminUser: admin
+          adminPassword: p10-observabilidad
+          nodeSelector:
+            cloud.google.com/gke-nodepool: obs-pool
+          resources:
+            requests: { cpu: 50m, memory: 200Mi }
+            limits: { cpu: 500m, memory: 400Mi }
+          # Tablero util, no un catalogo: se quitan los ~30 tableros por defecto
+          # del chart; el unico es el de apps/observability/dashboards.
+          defaultDashboardsEnabled: false
+          defaultDashboardsTimezone: America/Guatemala
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: ALL
+          additionalDataSources:
+            - name: Loki
+              uid: loki
+              type: loki
+              access: proxy
+              url: http://loki.observability.svc.cluster.local:3100
+              jsonData:
+                maxLines: 1000
+                # Del registro a la traza: el trace_id del JSON se vuelve un
+                # enlace directo a Tempo.
+                derivedFields:
+                  - name: trace_id
+                    matcherType: regex
+                    matcherRegex: '"trace_id":"(\w+)"'
+                    url: "$${__value.raw}"
+                    datasourceUid: tempo
+                    urlDisplayLabel: Ver traza
+            - name: Tempo
+              uid: tempo
+              type: tempo
+              access: proxy
+              url: http://tempo.observability.svc.cluster.local:3200
+              jsonData:
+                # De la traza al registro: abre en Loki los logs con ese trace_id.
+                tracesToLogsV2:
+                  datasourceUid: loki
+                  filterByTraceID: false
+                  filterBySpanID: false
+                  customQuery: true
+                  query: '{k8s_namespace_name="sa-p8"} | trace_id="$${__trace.traceId}"'
+                nodeGraph:
+                  enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Los CRD de Prometheus Operator superan el limite de 262144 bytes de la
+      # anotacion last-applied: hace falta Server-Side Apply (la misma
+      # leccion que los CRD de Argo Rollouts).
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

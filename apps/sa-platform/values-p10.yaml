@@ -1,0 +1,41 @@
+# values-p10.yaml
+# Overlay de la Practica 10. Se aplica DESPUES de values-p9-resilience.yaml
+# (ver bootstrap/apps/sa-platform-app.yaml). No toca nada de lo que usa la
+# Practica 9; solo cambia 3 servicios:
+#
+#   - api-gateway, auth-service y reserva-service pasan a las imagenes
+#     INSTRUMENTADAS con OpenTelemetry (codigo en P10/src del repo de codigo;
+#     mismo paquete de GHCR que la P8, tag p10-vX.Y.Z).
+#   - Mas memoria para esos tres: el SDK de OpenTelemetry + instrumentaciones
+#     sube el consumo de Node.js de ~60 MB a ~100 MB, y con el limite de 128 Mi
+#     de values-dev.yaml el kernel los mataria por OOM. Los requests de CPU NO
+#     se tocan (el ResourceQuota del namespace deja poco margen de CPU).
+#   - Los otros 4 servicios (pago, notificacion, cronjobs) siguen con las
+#     imagenes de la P8 (values-images.yaml, p8-v1.0.7).
+
+api-gateway:
+  image:
+    tag: "p10-v1.0.0"
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
+
+auth-service:
+  image:
+    tag: "p10-v1.0.0"
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
+
+reserva-service:
+  image:
+    tag: "p10-v1.0.0"
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 300m, memory: 256Mi }
+  env:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"

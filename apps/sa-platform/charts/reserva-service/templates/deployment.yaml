@@ -42,6 +42,9 @@ spec:
           ports:
             - name: http
               containerPort: 3003
+            # Practica 10: /metrics de OpenTelemetry (exportador Prometheus).
+            - name: metrics
+              containerPort: 9464
           envFrom:
             - configMapRef:
                 name: sa-p5-shared-config

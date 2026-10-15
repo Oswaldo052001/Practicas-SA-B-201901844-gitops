@@ -1,0 +1,93 @@
+# Practica 10 - OpenTelemetry Collector (modo agente, DaemonSet): lee los
+# registros que el runtime de contenedores deja en /var/log/pods de cada nodo
+# (solo del namespace sa-p8) y los envia a Loki por OTLP/HTTP.
+#
+# Los servicios escriben UNA linea JSON por evento con trace_id (ver
+# P10/src/*/src/logger.ts). El operador "container" entiende el formato del
+# runtime (containerd/CRI) y saca namespace, pod y contenedor del nombre del
+# archivo; "json_parser" convierte los campos del JSON (trace_id, level,
+# route, status...) en atributos, que Loki guarda como metadatos
+# estructurados consultables. service.name se toma del nombre del contenedor
+# (api-gateway, auth-service...) y Loki lo expone como etiqueta service_name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: otel-collector-logs-config
+  namespace: observability
+data:
+  otel.yaml: |
+    receivers:
+      filelog:
+        include:
+          - /var/log/pods/sa-p8_*/*/*.log
+        start_at: end
+        include_file_path: false
+        operators:
+          - type: container
+            id: container-parser
+          - type: json_parser
+            id: json-parser
+            parse_from: body
+            if: 'body matches "^\\{.*\\}\\s*$"'
+            on_error: send
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 60
+        spike_limit_mib: 15
+      resource/service:
+        attributes:
+          - key: service.name
+            from_attribute: k8s.container.name
+            action: upsert
+      batch:
+        timeout: 2s
+    exporters:
+      otlphttp/loki:
+        endpoint: http://loki.observability.svc.cluster.local:3100/otlp
+    service:
+      pipelines:
+        logs:
+          receivers: [filelog]
+          processors: [memory_limiter, resource/service, batch]
+          exporters: [otlphttp/loki]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: otel-collector-logs
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: otel-collector-logs
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otel-collector-logs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: otel-collector-logs
+      annotations:
+        checksum/config: "p10-v1"
+    spec:
+      containers:
+        - name: otel-collector
+          image: otel/opentelemetry-collector-contrib:0.116.1
+          args: ["--config=/conf/otel.yaml"]
+          # root: los archivos de /var/log/pods son legibles solo por root.
+          securityContext:
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 96Mi }
+          volumeMounts:
+            - { name: config, mountPath: /conf }
+            - { name: varlogpods, mountPath: /var/log/pods, readOnly: true }
+      volumes:
+        - name: config
+          configMap:
+            name: otel-collector-logs-config
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods

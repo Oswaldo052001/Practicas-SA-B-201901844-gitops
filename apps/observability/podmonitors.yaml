@@ -1,0 +1,38 @@
+# Practica 10 - PodMonitor: le dice a Prometheus que raspe /metrics (puerto
+# 9464, el exportador Prometheus del SDK de OpenTelemetry) de los pods de la
+# aplicacion en sa-p8.
+#
+# No depende de las etiquetas de los pods: selecciona todos los del namespace
+# y Prometheus solo raspa los que declaran un puerto de contenedor llamado
+# "metrics" (los 3 servicios instrumentados; ver rollout.yaml / deployment.yaml
+# de los charts). Los demas pods (postgres, nats, pago...) no tienen ese
+# puerto y se ignoran.
+#
+# Etiquetas que se agregan a cada serie:
+#   - service: nombre del contenedor (api-gateway | auth-service | reserva-service)
+#   - rollouts_pod_template_hash: hash del ReplicaSet que Argo Rollouts pone
+#     en cada pod. Es lo que permite que el AnalysisTemplate mida SOLO los
+#     pods de la version canary (ver api-gateway-canary-metrics).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: sa-p8-servicios
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observabilidad-p10
+spec:
+  namespaceSelector:
+    matchNames: [sa-p8]
+  selector: {}
+  podTargetLabels:
+    - rollouts-pod-template-hash
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_container_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod

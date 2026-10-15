@@ -1,0 +1,89 @@
+# Practica 10 - Receptor de alertas. Alertmanager envia aqui (webhook) cada
+# alerta que dispara; el pod escribe el cuerpo JSON a stdout. Es el "canal"
+# de notificacion verificable sin depender de correo/Slack: la evidencia es
+#   kubectl -n observability logs deploy/alert-sink
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-sink-script
+  namespace: observability
+data:
+  server.js: |
+    const http = require("http");
+    http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        let resumen = body;
+        try {
+          const p = JSON.parse(body);
+          resumen = JSON.stringify({
+            recibido: new Date().toISOString(),
+            estado: p.status,
+            alertas: (p.alerts || []).map((a) => ({
+              estado: a.status,
+              alerta: a.labels && a.labels.alertname,
+              severidad: a.labels && a.labels.severity,
+              servicio: a.labels && a.labels.service,
+              resumen: a.annotations && a.annotations.summary,
+              runbook: a.annotations && a.annotations.runbook_url,
+            })),
+          });
+        } catch (e) {}
+        console.log("ALERTA " + resumen);
+        res.writeHead(200);
+        res.end("ok");
+      });
+    }).listen(8080, () => console.log("alert-sink escuchando en :8080"));
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alert-sink
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: alert-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alert-sink
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alert-sink
+    spec:
+      nodeSelector:
+        cloud.google.com/gke-nodepool: obs-pool
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: alert-sink
+          image: node:20-alpine
+          command: ["node", "/app/server.js"]
+          ports:
+            - { name: http, containerPort: 8080 }
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - { name: script, mountPath: /app }
+      volumes:
+        - name: script
+          configMap:
+            name: alert-sink-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: alert-sink
+  namespace: observability
+spec:
+  selector:
+    app.kubernetes.io/name: alert-sink
+  ports:
+    - { name: http, port: 8080, targetPort: http }

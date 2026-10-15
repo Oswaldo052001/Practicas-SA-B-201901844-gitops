@@ -1,0 +1,46 @@
+# Practica 10 - Hija del app-of-apps: todo lo demas de observabilidad que NO
+# es el chart de Prometheus/Grafana, en la carpeta apps/observability de este
+# repo (manifiestos planos):
+#   - Loki (registros), Tempo (trazas), OpenTelemetry Collector (gateway
+#     OTLP + DaemonSet que lee los logs de los pods)
+#   - PodMonitor, NetworkPolicy de scrape, PrometheusRule con los SLO y las
+#     alertas por consumo de presupuesto de error
+#   - Tablero de Grafana (ConfigMap con el JSON exportado)
+#   - alert-sink (receptor de Alertmanager) y loadgen (trafico de usuarios
+#     sintetico y permanente: sin trafico no hay metricas ni canary que medir)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-resources
+  namespace: argocd
+  annotations:
+    # Ola 1: despues de kube-prometheus-stack (necesita sus CRD).
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Oswaldo052001/Practicas-SA-B-201901844-gitops.git
+    targetRevision: main
+    path: apps/observability
+    directory:
+      recurse: true
+      # Solo YAML: la carpeta tiene tambien un README en Markdown.
+      include: "*.yaml"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      # Si los CRD de Prometheus Operator aun no existen en el primer
+      # intento, no fallar el dry-run: reintentar (ver retry).
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 8
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m

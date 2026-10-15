@@ -1,0 +1,29 @@
+# values-p10-faults.yaml - INTERRUPTORES de los fallos inducidos (Practica 10).
+#
+# Por defecto todo esta apagado ("0"). Los scripts de P10/scripts cambian
+# estos valores, hacen commit/push y ArgoCD despliega el cambio; para
+# recuperar se vuelve a "0" (git revert). Como son variables de entorno que
+# salen de un ConfigMap, cambiarlas cambia el checksum del pod template: en
+# api-gateway (Rollout) eso crea un canary nuevo; en reserva-service
+# (Deployment) un rolling update.
+#
+# - api-gateway.FAULT_ERROR_RATE / FAULT_LATENCY_MS: version "degradada" del
+#   gateway. Es el fallo del CANARY: distinto al de la P8 (alli se rompio el
+#   endpoint /ready-check; aqui el gateway responde 500 a una fraccion del
+#   trafico real y/o agrega latencia). El AnalysisTemplate lo detecta con
+#   PromQL y Argo Rollouts revierte solo.
+# - reserva-service.FAULT_DB_DELAY_MS / FAULT_ERROR_RATE: base de datos
+#   "degradada" detras de reservas. Es el fallo del RECORRIDO SINTOMA A
+#   CAUSA: usuarios con errores y lentitud, la alerta salta por consumo de
+#   presupuesto de error y la causa se encuentra en la traza (span de
+#   Postgres lento) y en los registros del servicio.
+
+api-gateway:
+  env:
+    FAULT_ERROR_RATE: "0"
+    FAULT_LATENCY_MS: "0"
+
+reserva-service:
+  env:
+    FAULT_ERROR_RATE: "0"
+    FAULT_DB_DELAY_MS: "0"

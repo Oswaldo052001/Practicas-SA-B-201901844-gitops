@@ -61,6 +61,10 @@ spec:
           ports:
             - name: http
               containerPort: 3000
+            # Practica 10: /metrics de OpenTelemetry (exportador Prometheus).
+            # El PodMonitor del stack de observabilidad raspa este puerto.
+            - name: metrics
+              containerPort: 9464
           envFrom:
             - configMapRef:
                 name: sa-p5-shared-config
@@ -117,6 +121,10 @@ spec:
       # ese paso termine en Successful antes de avanzar al siguiente. Si el
       # AnalysisRun termina Failed/Error, el rollout se revierte solo
       # (abort) y el trafico vuelve 100% al stable sin intervencion humana.
+      # Practica 10: la decision de cada analysis ya NO la toma una prueba
+      # sintetica (Job de k6, Practica 8) sino metricas reales de trafico
+      # medidas en Prometheus sobre los pods canary (ver
+      # templates/analysistemplate.yaml: tasa de error y p95 de latencia).
       steps:
         - setWeight: 25
         # Pausa corta antes de cada analysis: le da tiempo al pod nuevo de
@@ -131,13 +139,27 @@ spec:
         - pause: { duration: 20s }
         - analysis:
             templates:
-              - templateName: api-gateway-canary-check
+              - templateName: api-gateway-canary-metrics
+            args:
+              # Hash del ReplicaSet canary: las consultas PromQL del
+              # AnalysisTemplate filtran por este valor para medir SOLO
+              # los pods de la version candidata.
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
         - pause: { duration: 30s }
         - setWeight: 50
         - pause: { duration: 20s }
         - analysis:
             templates:
-              - templateName: api-gateway-canary-check
+              - templateName: api-gateway-canary-metrics
+            args:
+              # Hash del ReplicaSet canary: las consultas PromQL del
+              # AnalysisTemplate filtran por este valor para medir SOLO
+              # los pods de la version candidata.
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest
         - pause: { duration: 30s }
         - setWeight: 75
         - pause: { duration: 20s }
@@ -156,4 +178,11 @@ spec:
         # aunque los otros 2 pasos si lo tengan.
         - analysis:
             templates:
-              - templateName: api-gateway-canary-check
+              - templateName: api-gateway-canary-metrics
+            args:
+              # Hash del ReplicaSet canary: las consultas PromQL del
+              # AnalysisTemplate filtran por este valor para medir SOLO
+              # los pods de la version candidata.
+              - name: canary-hash
+                valueFrom:
+                  podTemplateHashValue: Latest

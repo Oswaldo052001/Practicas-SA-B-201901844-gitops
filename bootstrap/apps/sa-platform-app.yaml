@@ -33,6 +33,10 @@ spec:
         - values-secrets.yaml
         - values-images.yaml
         - values-p9-resilience.yaml
+        # Practica 10: imagenes instrumentadas, recursos para OpenTelemetry y
+        # las variables de los fallos inducidos (apagados por defecto).
+        - values-p10.yaml
+        - values-p10-faults.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: sa-p8
