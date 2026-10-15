@@ -1,4 +1,4 @@
-# values-p10-faults.yaml - INTERRUPTORES de los fallos inducidos (Practica 10).
+﻿# values-p10-faults.yaml - INTERRUPTORES de los fallos inducidos (Practica 10).
 #
 # Por defecto todo esta apagado ("0"). Los scripts de P10/scripts cambian
 # estos valores, hacen commit/push y ArgoCD despliega el cambio; para
@@ -20,7 +20,7 @@
 
 api-gateway:
   env:
-    FAULT_ERROR_RATE: "0"
+    FAULT_ERROR_RATE: "0.5"
     FAULT_LATENCY_MS: "0"
 
 reserva-service:
