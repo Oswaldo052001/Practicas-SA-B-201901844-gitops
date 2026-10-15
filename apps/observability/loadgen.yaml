@@ -32,7 +32,7 @@ data:
       scenarios: {
         trafico: {
           executor: "constant-arrival-rate",
-          rate: 4,
+          rate: 3,
           timeUnit: "1s",
           duration: "720h",
           preAllocatedVUs: 8,
@@ -70,7 +70,7 @@ data:
     export default function (data) {
       const dado = Math.random();
       let r;
-      if (dado < 0.45) {
+      if (dado < 0.55) {
         r = http.get(`${BASE}/api/reservas/usuario/${data.lectorId}`);
         check(r, { "listar 200": (x) => x.status === 200 });
       } else if (dado < 0.70) {
@@ -107,7 +107,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/script: "p10-v3"
+        checksum/script: "p10-v4"
       labels:
         app.kubernetes.io/name: loadgen
     spec:
