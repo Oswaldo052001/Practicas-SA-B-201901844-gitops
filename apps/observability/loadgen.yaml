@@ -20,7 +20,6 @@ data:
     import { check, sleep } from "k6";
 
     const BASE = __ENV.BASE_URL || "http://api-gateway.sa-p8.svc.cluster.local:3000";
-    const CORREO = `loadgen-${Date.now()}@p10.local`;
     const CLAVE = "Loadgen-p10-clave";
     const JSON_H = { headers: { "Content-Type": "application/json" } };
 
@@ -43,40 +42,52 @@ data:
     };
 
     export function setup() {
-      // Reintenta hasta que el gateway responda (arranque en frio del cluster).
-      let usuarioId = 1;
-      for (let i = 0; i < 30; i++) {
-        const r = http.post(`${BASE}/api/auth/registro`, JSON.stringify({ correo: CORREO, password: CLAVE, rol: "cliente" }), JSON_H);
-        if (r.status === 201) {
-          usuarioId = r.json("id");
-          break;
+      // DOS usuarios con roles distintos, a proposito:
+      //  - lector:   solo LISTA y hace login; nunca recibe reservas, asi que su
+      //              listado siempre es chico y barato.
+      //  - escritor: solo CREA reservas; nadie lista las suyas.
+      // Con un unico usuario que creaba (0.8/s) y listaba (1.6/s) a la vez, su
+      // listado crecio sin limite (16 mil filas en un dia): cada GET tardaba de 6
+      // a 44 s, superaba el MAX_PAYLOAD de NATS (1 MB) y dejaba sin CPU al pod
+      // hasta que fallaba su /health y entraba en CrashLoopBackOff.
+      const sufijo = Date.now();
+      const lector = `loadgen-lector-${sufijo}@p10.local`;
+      const escritor = `loadgen-escritor-${sufijo}@p10.local`;
+      const ids = {};
+      for (const correo of [lector, escritor]) {
+        for (let i = 0; i < 30; i++) {
+          const r = http.post(`${BASE}/api/auth/registro`, JSON.stringify({ correo, password: CLAVE, rol: "cliente" }), JSON_H);
+          if (r.status === 201) {
+            ids[correo] = r.json("id");
+            break;
+          }
+          sleep(5);
         }
-        sleep(5);
       }
-      return { usuarioId };
+      return { lectorId: ids[lector] || 1, escritorId: ids[escritor] || 1, correo: lector };
     }
 
     export default function (data) {
       const dado = Math.random();
       let r;
-      if (dado < 0.40) {
-        r = http.get(`${BASE}/api/reservas/usuario/${data.usuarioId}`);
+      if (dado < 0.45) {
+        r = http.get(`${BASE}/api/reservas/usuario/${data.lectorId}`);
         check(r, { "listar 200": (x) => x.status === 200 });
-      } else if (dado < 0.65) {
-        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: CORREO, password: CLAVE }), JSON_H);
+      } else if (dado < 0.70) {
+        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: data.correo, password: CLAVE }), JSON_H);
         check(r, { "login 200": (x) => x.status === 200 });
-      } else if (dado < 0.85) {
+      } else if (dado < 0.74) {
+        // El gateway reemplaza el prefijo /api/reservas por /reservas, asi que
+        // crear una reserva es POST /api/reservas. Ritmo bajo (~0.16/s): basta
+        // para alimentar app_reservas_total sin inflar la base de datos.
         r = http.post(
-          // El gateway reemplaza el prefijo /api/reservas por /reservas, asi que
-          // crear una reserva es POST /api/reservas (no /api/reservas/reservas,
-          // que llegaba a reserva-service como /reservas/reservas y daba 404).
           `${BASE}/api/reservas`,
-          JSON.stringify({ usuarioId: data.usuarioId, funcionId: 1 + Math.floor(Math.random() * 3), asientos: 1 + Math.floor(Math.random() * 3) }),
+          JSON.stringify({ usuarioId: data.escritorId, funcionId: 1 + Math.floor(Math.random() * 3), asientos: 1 + Math.floor(Math.random() * 3) }),
           JSON_H
         );
         check(r, { "reserva 201": (x) => x.status === 201 });
       } else {
-        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: CORREO, password: "clave-incorrecta" }), JSON_H);
+        r = http.post(`${BASE}/api/auth/login`, JSON.stringify({ correo: data.correo, password: "clave-incorrecta" }), JSON_H);
         check(r, { "login invalido 401": (x) => x.status === 401 });
       }
     }
@@ -95,6 +106,8 @@ spec:
       app.kubernetes.io/name: loadgen
   template:
     metadata:
+      annotations:
+        checksum/script: "p10-v3"
       labels:
         app.kubernetes.io/name: loadgen
     spec:

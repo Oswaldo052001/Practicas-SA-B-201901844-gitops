@@ -5,7 +5,7 @@
 #   SLO-1 Disponibilidad: 99 % de las peticiones terminan SIN error 5xx,
 #         ventana movil de 30 dias.  Presupuesto de error = 1 %.
 #   SLO-2 Latencia: 99 % de las peticiones responden en menos de 2 segundos
-#         (bucket le="2" del histograma), ventana movil de 30 dias.
+#         (bucket le="2.0" del histograma; el exportador de Prometheus escribe los cortes como 1.0, 2.0...), ventana movil de 30 dias.
 #
 # Alertas por "quema del presupuesto" (burn rate): burn = tasa de error
 # observada / presupuesto (0.01). Burn 10 = se gasta el presupuesto de 30 dias
@@ -48,7 +48,7 @@ spec:
         - record: sa:http_slow_ratio:rate5m
           expr: |
             1 - (
-              sum(rate(app_http_request_duration_seconds_bucket{service="api-gateway",route=~"/api/.*",le="2"}[5m]))
+              sum(rate(app_http_request_duration_seconds_bucket{service="api-gateway",route=~"/api/.*",le="2.0"}[5m]))
               /
               sum(rate(app_http_request_duration_seconds_count{service="api-gateway",route=~"/api/.*"}[5m]))
             )
