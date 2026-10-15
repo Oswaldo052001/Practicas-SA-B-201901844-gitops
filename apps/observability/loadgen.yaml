@@ -25,6 +25,11 @@ data:
     const JSON_H = { headers: { "Content-Type": "application/json" } };
 
     export const options = {
+      // Sin keep-alive: cada peticion abre una conexion nueva. Con conexiones
+      // persistentes, kube-proxy solo reparte al CONECTAR, asi que los pods
+      // nuevos (el canary) nunca recibirian trafico de los VUs ya conectados
+      // (visto en vivo: el canary solo recibia los probes /health).
+      noConnectionReuse: true,
       scenarios: {
         trafico: {
           executor: "constant-arrival-rate",
