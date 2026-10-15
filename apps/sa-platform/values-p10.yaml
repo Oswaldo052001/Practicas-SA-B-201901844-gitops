@@ -8,8 +8,10 @@
 #     mismo paquete de GHCR que la P8, tag p10-vX.Y.Z).
 #   - Mas memoria para esos tres: el SDK de OpenTelemetry + instrumentaciones
 #     sube el consumo de Node.js de ~60 MB a ~100 MB, y con el limite de 128 Mi
-#     de values-dev.yaml el kernel los mataria por OOM. Los requests de CPU NO
-#     se tocan (el ResourceQuota del namespace deja poco margen de CPU).
+#     de values-dev.yaml el kernel los mataria por OOM. El limite de CPU se
+#     queda en 200m (igual que values-dev.yaml) porque el ResourceQuota
+#     sa-p8-quota tiene limits.cpu=4; el request sube a 80m (antes 50m) para
+#     que el HPA (60%) no escale de mas por el CPU extra del SDK.
 #   - Los otros 4 servicios (pago, notificacion, cronjobs) siguen con las
 #     imagenes de la P8 (values-images.yaml, p8-v1.0.7).
 
@@ -17,8 +19,8 @@ api-gateway:
   image:
     tag: "p10-v1.0.0"
   resources:
-    requests: { cpu: 50m, memory: 96Mi }
-    limits: { cpu: 300m, memory: 256Mi }
+    requests: { cpu: 80m, memory: 96Mi }
+    limits: { cpu: 200m, memory: 256Mi }
   env:
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
 
@@ -26,8 +28,8 @@ auth-service:
   image:
     tag: "p10-v1.0.0"
   resources:
-    requests: { cpu: 50m, memory: 96Mi }
-    limits: { cpu: 300m, memory: 256Mi }
+    requests: { cpu: 80m, memory: 96Mi }
+    limits: { cpu: 200m, memory: 256Mi }
   env:
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
 
@@ -35,7 +37,7 @@ reserva-service:
   image:
     tag: "p10-v1.0.0"
   resources:
-    requests: { cpu: 50m, memory: 96Mi }
-    limits: { cpu: 300m, memory: 256Mi }
+    requests: { cpu: 80m, memory: 96Mi }
+    limits: { cpu: 200m, memory: 256Mi }
   env:
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.observability.svc.cluster.local:4318"
