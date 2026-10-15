@@ -25,5 +25,5 @@ api-gateway:
 
 reserva-service:
   env:
-    FAULT_ERROR_RATE: "0"
-    FAULT_DB_DELAY_MS: "0"
+    FAULT_ERROR_RATE: "0.5"
+    FAULT_DB_DELAY_MS: "1500"
