@@ -67,7 +67,10 @@ data:
         check(r, { "login 200": (x) => x.status === 200 });
       } else if (dado < 0.85) {
         r = http.post(
-          `${BASE}/api/reservas/reservas`,
+          // El gateway reemplaza el prefijo /api/reservas por /reservas, asi que
+          // crear una reserva es POST /api/reservas (no /api/reservas/reservas,
+          // que llegaba a reserva-service como /reservas/reservas y daba 404).
+          `${BASE}/api/reservas`,
           JSON.stringify({ usuarioId: data.usuarioId, funcionId: 1 + Math.floor(Math.random() * 3), asientos: 1 + Math.floor(Math.random() * 3) }),
           JSON_H
         );
