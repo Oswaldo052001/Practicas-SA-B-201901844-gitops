@@ -21,7 +21,10 @@ data:
         include:
           - /var/log/pods/sa-p8_*/*/*.log
         start_at: end
-        include_file_path: false
+        # El operador "container" saca namespace/pod/contenedor de la ruta del
+        # archivo (atributo log.file.path); sin esto falla con "type '<nil>'
+        # cannot be parsed as log path field" y no llega ningun registro a Loki.
+        include_file_path: true
         operators:
           - type: container
             id: container-parser
@@ -68,7 +71,7 @@ spec:
       labels:
         app.kubernetes.io/name: otel-collector-logs
       annotations:
-        checksum/config: "p10-v1"
+        checksum/config: "p10-v2"
     spec:
       containers:
         - name: otel-collector
