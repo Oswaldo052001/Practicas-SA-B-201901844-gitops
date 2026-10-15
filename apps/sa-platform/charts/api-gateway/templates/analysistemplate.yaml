@@ -17,8 +17,8 @@
 # el umbral, la medicion NO cuenta como exito: el AnalysisRun termina Failed o
 # Error y el Rollout se revierte solo al stable, sin intervencion humana.
 #
-# Nota de Helm: las expresiones de Argo Rollouts "{{args.xxx}}" se escapan con
-# {{`...`}} para que Helm no intente evaluarlas al renderizar el chart.
+# Nota de Helm: las expresiones de Argo Rollouts (args.xxx entre llaves dobles) se
+# escriben como cadenas crudas de Helm (comillas invertidas) para que Helm no intente evaluarlas. Ojo: Helm evalua las llaves dobles incluso dentro de comentarios.
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
