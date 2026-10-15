@@ -52,45 +52,56 @@ spec:
               /
               sum(rate(app_http_request_duration_seconds_count{service="api-gateway",route=~"/api/.*"}[5m]))
             )
+        # Quema del presupuesto (burn rate) = lo observado / lo que el SLO tolera.
+        # Ambos SLO son del 99 %, asi que el presupuesto de error es 0.01.
+        # burn 1 = se gasta el presupuesto justo a ritmo de 30 dias; burn 10 = 10 veces mas rapido.
+        - record: sa:slo_disponibilidad:burnrate1m
+          expr: sa:http_error_ratio:rate1m / 0.01
+        - record: sa:slo_disponibilidad:burnrate5m
+          expr: sa:http_error_ratio:rate5m / 0.01
+        - record: sa:slo_disponibilidad:burnrate1h
+          expr: sa:http_error_ratio:rate1h / 0.01
+        - record: sa:slo_latencia:burnrate5m
+          expr: sa:http_slow_ratio:rate5m / 0.01
 
     - name: sa-p8.alertas
       rules:
         - alert: SLODisponibilidadQuemaRapida
           # Burn >= 10 (error >= 10 %) en 5 min Y confirmado en el ultimo minuto.
-          expr: sa:http_error_ratio:rate5m > 0.10 and sa:http_error_ratio:rate1m > 0.10
+          expr: sa:slo_disponibilidad:burnrate5m > 10 and sa:slo_disponibilidad:burnrate1m > 10
           for: 1m
           labels:
             severity: page
             service: api-gateway
             slo: disponibilidad
           annotations:
-            summary: "api-gateway: {{ $value | humanizePercentage }} de errores 5xx (SLO 99 %, quema >= 10x)"
+            summary: "api-gateway: presupuesto de disponibilidad quemandose a {{ $value | humanize }}x (SLO 99 %, umbral 10x)"
             description: "El presupuesto de error de 30 dias se esta gastando al menos 10 veces mas rapido de lo permitido."
             runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLODisponibilidadQuemaRapida.md
 
         - alert: SLODisponibilidadQuemaLenta
           # Burn >= 3 (error >= 3 %) sostenido una hora: degradacion silenciosa.
-          expr: sa:http_error_ratio:rate1h > 0.03 and sa:http_error_ratio:rate5m > 0.03
+          expr: sa:slo_disponibilidad:burnrate1h > 3 and sa:slo_disponibilidad:burnrate5m > 3
           for: 5m
           labels:
             severity: ticket
             service: api-gateway
             slo: disponibilidad
           annotations:
-            summary: "api-gateway: errores 5xx sostenidos ({{ $value | humanizePercentage }} en 1 h, quema >= 3x)"
+            summary: "api-gateway: errores 5xx sostenidos, quema de {{ $value | humanize }}x en 1 h (umbral 3x)"
             description: "Degradacion lenta: no despierta a nadie, pero consume el presupuesto de error."
             runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLODisponibilidadQuemaLenta.md
 
         - alert: SLOLatenciaAlta
-          # Mas del 5 % de las peticiones tarda mas de 2 s (el SLO tolera 1 %).
-          expr: sa:http_slow_ratio:rate5m > 0.05
+          # Burn >= 5 (mas del 5 % de las peticiones tarda mas de 2 s; el SLO tolera 1 %).
+          expr: sa:slo_latencia:burnrate5m > 5
           for: 2m
           labels:
             severity: page
             service: api-gateway
             slo: latencia
           annotations:
-            summary: "api-gateway: {{ $value | humanizePercentage }} de peticiones tardan mas de 2 s (SLO: 1 %)"
+            summary: "api-gateway: presupuesto de latencia quemandose a {{ $value | humanize }}x (SLO: 99 % < 2 s, umbral 5x)"
             description: "p95 actual y desglose por ruta en el tablero 'Operacion SA P10'."
             runbook_url: https://github.com/Oswaldo052001/Practicas-SA-B-201901844/blob/main/P10/docs/runbooks/SLOLatenciaAlta.md
 
