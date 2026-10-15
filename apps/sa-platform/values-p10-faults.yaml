@@ -20,7 +20,7 @@
 
 api-gateway:
   env:
-    FAULT_ERROR_RATE: "0.5"
+    FAULT_ERROR_RATE: "0"
     FAULT_LATENCY_MS: "0"
 
 reserva-service:
