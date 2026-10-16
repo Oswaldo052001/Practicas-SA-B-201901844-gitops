@@ -33,7 +33,7 @@ postgresql:
       # se snapshotea (no ocupa almacenamiento aparte) y sirve como
       # respaldo logico de respaldo/verificacion ademas del snapshot.
       pre.hook.backup.velero.io/container: "postgresql"
-      pre.hook.backup.velero.io/command: '["/bin/sh", "-c", "PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -U postgres -h localhost > /bitnami/postgresql/data/pg_dumpall_backup.sql"]'
+      pre.hook.backup.velero.io/command: '["/bin/sh", "-c", "PGPASSWORD=$POSTGRES_PASSWORD pg_dumpall -U sa_admin -h localhost --no-role-passwords > /bitnami/postgresql/data/pg_dumpall_backup.sql"]'
       post.hook.backup.velero.io/container: "postgresql"
       post.hook.backup.velero.io/command: '["/bin/sh", "-c", "ls -la /bitnami/postgresql/data/pg_dumpall_backup.sql"]'
 
